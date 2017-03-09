@@ -13,6 +13,7 @@ import java.util.List;
  * Created by asie on 3/9/17.
  */
 public class ClassCacheTweaker implements ITweaker {
+	public static ClassCache cache;
 	private LaunchClassLoader classLoader;
 	private File gameDir;
 
@@ -33,6 +34,12 @@ public class ClassCacheTweaker implements ITweaker {
 
 	@Override
 	public String[] getLaunchArguments() {
+		try {
+			cache = ClassCache.load(classLoader, gameDir);
+		} catch (Exception e) {
+			throw new RuntimeException(e);
+		}
+
 		try {
 			// This is a good point in time.
 			Field transformersField = LaunchClassLoader.class.getDeclaredField("transformers");

@@ -1,0 +1,64 @@
+buildscript {
+    repositories {
+        jcenter()
+        maven { url = "http://files.minecraftforge.net/maven" }
+    }
+    dependencies {
+        classpath 'net.minecraftforge.gradle:ForgeGradle:2.2-SNAPSHOT'
+		classpath 'com.github.jengelman.gradle.plugins:shadow:1.2.3'
+    }
+}
+
+apply plugin: 'net.minecraftforge.gradle.forge'
+apply plugin: 'com.github.johnrengelman.shadow'
+
+version = "0.1.0"
+group = "pl.asie.classcachetweaker" // http://maven.apache.org/guides/mini/guide-naming-conventions.html
+archivesBaseName = "classcachetweaker"
+
+sourceCompatibility = JavaVersion.VERSION_1_8
+targetCompatibility = JavaVersion.VERSION_1_8
+
+minecraft {
+    version = "1.10.2-12.18.3.2239"
+    runDir = "run"
+    
+    mappings = "snapshot_20161111"
+}
+
+repositories {
+	mavenCentral()
+}
+
+configurations {
+	shadow
+	compile.extendsFrom shadow
+}
+
+dependencies {
+}
+
+processResources {
+    // this will ensure that this task is redone when the versions change.
+    inputs.property "version", project.version
+    inputs.property "mcversion", project.minecraft.version
+
+    // replace stuff in mcmod.info, nothing else
+    from(sourceSets.main.resources.srcDirs) {
+        include 'mcmod.info'
+                
+        // replace version and mcversion
+        expand 'version':project.version, 'mcversion':project.minecraft.version
+    }
+        
+    // copy everything else, thats not the mcmod.info
+    from(sourceSets.main.resources.srcDirs) {
+        exclude 'mcmod.info'
+    }
+}
+
+jar {
+    manifest.attributes "Manifest-Version": "1.0"
+    manifest.attributes "TweakOrder": "2147483647"
+    manifest.attributes "TweakClass": "pl.asie.classcachetweaker.ClassCacheTweaker"
+}

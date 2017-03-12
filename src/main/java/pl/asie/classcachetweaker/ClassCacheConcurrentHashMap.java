@@ -38,7 +38,9 @@ public class ClassCacheConcurrentHashMap extends ConcurrentHashMap<String, Class
 					t.printStackTrace();
 				}
 				output = c;
-			} else if (key instanceof String) {
+			}
+
+			if (output == null && key instanceof String) {
 				try {
 					output = classLoader.findClass((String) key);
 				} catch (Exception e) {

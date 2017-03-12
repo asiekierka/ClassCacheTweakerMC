@@ -217,7 +217,7 @@ public class ClassCache implements Serializable {
 	public synchronized void add(String transformedName, byte[] data) {
 		if (data == null) return;
 
-		System.out.println("Adding " + transformedName);
+		// System.out.println("Adding " + transformedName);
 		classMap.put(transformedName, data);
 
 		dirty = true;
@@ -305,4 +305,8 @@ public class ClassCache implements Serializable {
 	public byte[] get(Object transformedName) {
 		return classMap.get(transformedName);
 	}
+
+    public void remove(final Object key) {
+	    classMap.remove(key);
+    }
 }

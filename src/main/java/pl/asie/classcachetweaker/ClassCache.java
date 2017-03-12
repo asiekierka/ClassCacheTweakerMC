@@ -28,6 +28,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.Manifest;
 
 public class ClassCache implements Serializable {
+	public static final int CURRENT_VERSION = 2;
+
 	private transient static final Field PACKAGES;
 	private transient static final Field CACHED_CLASSES;
 	private transient static final Field MANIFESTS;
@@ -140,8 +142,8 @@ public class ClassCache implements Serializable {
 				FileInputStream fileInputStream = new FileInputStream(classCacheFile);
 				DataInputStream dataInputStream = new DataInputStream(fileInputStream);
 				ObjectInputStream objectInputStream = new ObjectInputStream(dataInputStream);
-				int version = dataInputStream.readUnsignedByte();
-				if (version != 1) {
+				int version = dataInputStream.readInt();
+				if (version != CURRENT_VERSION) {
 					throw new IOException("Invalid ClassCache.dat version!");
 				}
 
@@ -166,16 +168,18 @@ public class ClassCache implements Serializable {
 
 				int classCount = dataInputStream.readInt();
 				for (int i = 0; i < classCount; i++) {
-					String name = dataInputStream.readUTF();
-					boolean hasCodeSource = dataInputStream.readBoolean();
-					if (hasCodeSource) {
-						CodeSource codeSource = (CodeSource) objectInputStream.readObject();
-						cache.codeSourceMap.put(name, codeSource);
+					if (dataInputStream.readBoolean()) {
+						String name = dataInputStream.readUTF();
+						boolean hasCodeSource = dataInputStream.readBoolean();
+						if (hasCodeSource) {
+							CodeSource codeSource = (CodeSource) objectInputStream.readObject();
+							cache.codeSourceMap.put(name, codeSource);
+						}
+						int dataLen = dataInputStream.readInt();
+						byte[] data = new byte[dataLen];
+						dataInputStream.read(data);
+						cache.classMap.put(name, data);
 					}
-					int dataLen = dataInputStream.readInt();
-					byte[] data = new byte[dataLen];
-					dataInputStream.read(data);
-					cache.classMap.put(name, data);
 				}
 
 				objectInputStream.close();
@@ -186,6 +190,10 @@ public class ClassCache implements Serializable {
 			} catch (Throwable t) {
 				t.printStackTrace();
 				cache = new ClassCache();
+
+				cache.classCacheFile = classCacheFile;
+				cache.classCacheFileTmp = new File(classCacheFile.getAbsolutePath() + "_tmp");
+				cache.classLoader = classLoader;
 			}
 		}
 
@@ -217,7 +225,7 @@ public class ClassCache implements Serializable {
 	public synchronized void add(String transformedName, byte[] data) {
 		if (data == null) return;
 
-		// System.out.println("Adding " + transformedName);
+		System.out.println("Adding " + transformedName);
 		classMap.put(transformedName, data);
 
 		dirty = true;
@@ -244,7 +252,7 @@ public class ClassCache implements Serializable {
 			DataOutputStream dataOutputStream = new DataOutputStream(fileOutputStream);
 			ObjectOutputStream objectOutputStream = new ObjectOutputStream(dataOutputStream);
 
-			dataOutputStream.writeByte(1); // version
+			dataOutputStream.writeInt(CURRENT_VERSION); // version
 
 			Map<String, Package> packageMap = (Map<String, Package>) PACKAGES.get(classLoader);
 
@@ -268,25 +276,31 @@ public class ClassCache implements Serializable {
 
 			dataOutputStream.writeInt(classMap.size());
 			for (Map.Entry<String, byte[]> entry : classMap.entrySet()) {
-				CodeSource src = codeSourceMap.get(entry.getKey());
-				if (!codeSourceMap.containsKey(entry.getKey())) {
-					Class<?> cl = cachedClasses.getReal(entry.getKey());
-					if (cl != null) {
-						src = cl.getProtectionDomain().getCodeSource();
-						codeSourceMap.put(entry.getKey(), src);
-					} else {
-						src = null;
-					}
+				Class<?> cl = cachedClasses.getReal(entry.getKey());
+				if (cl == null) {
+					dataOutputStream.writeBoolean(false);
+					continue;
 				}
 
-				dataOutputStream.writeUTF(entry.getKey());
-				dataOutputStream.writeBoolean(src != null);
+				CodeSource src = cl.getProtectionDomain().getCodeSource();
+
+				boolean shouldWrite = true;
 				if (src != null) {
-					objectOutputStream.writeObject(src);
-					objectOutputStream.flush();
+					String loc = src.getLocation().toString();
+					shouldWrite = !loc.startsWith("file:") || !loc.endsWith(".class");
 				}
-				dataOutputStream.writeInt(entry.getValue().length);
-				dataOutputStream.write(entry.getValue());
+
+				dataOutputStream.writeBoolean(shouldWrite);
+				if (shouldWrite) {
+					dataOutputStream.writeUTF(entry.getKey());
+					dataOutputStream.writeBoolean(src != null);
+					if (src != null) {
+						objectOutputStream.writeObject(src);
+						objectOutputStream.flush();
+					}
+					dataOutputStream.writeInt(entry.getValue().length);
+					dataOutputStream.write(entry.getValue());
+				}
 			}
 
 			objectOutputStream.close();

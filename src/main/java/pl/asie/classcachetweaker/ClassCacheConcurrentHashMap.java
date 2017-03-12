@@ -2,6 +2,7 @@ package pl.asie.classcachetweaker;
 
 import net.minecraft.launchwrapper.LaunchClassLoader;
 
+import java.net.URL;
 import java.security.SecureClassLoader;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.Lock;

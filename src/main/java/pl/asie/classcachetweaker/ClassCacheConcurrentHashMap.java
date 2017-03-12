@@ -1,5 +1,6 @@
 package pl.asie.classcachetweaker;
 
+import net.minecraft.launchwrapper.IClassTransformer;
 import net.minecraft.launchwrapper.LaunchClassLoader;
 
 import java.net.URL;
@@ -33,6 +34,10 @@ public class ClassCacheConcurrentHashMap extends ConcurrentHashMap<String, Class
 			if (data != null) {
 				Class<?> c = null;
 				try {
+					for (IClassTransformer transformer : classLoader.getTransformers()) {
+						if (!(transformer instanceof ClassCacheTweaker))
+							data = transformer.transform((String) key, (String) key, data);
+					}
 					c = (Class<?>) ClassCache.DEFINE_CLASS.invokeExact((SecureClassLoader) classLoader, (String) key, data, 0, data.length, cache.codeSourceMap.get(key));
 					super.put((String) key, c);
 				} catch (Throwable t) {

@@ -20,6 +20,7 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.security.CodeSource;
 import java.security.SecureClassLoader;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -28,7 +29,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.Manifest;
 
 public class ClassCache implements Serializable {
-	public static final int CURRENT_VERSION = 2;
+	public static final int CURRENT_VERSION = 3;
 
 	private transient static final Field PACKAGES;
 	private transient static final Field CACHED_CLASSES;
@@ -109,6 +110,7 @@ public class ClassCache implements Serializable {
 
 	private transient File classCacheFile;
 	private transient File classCacheFileTmp;
+	private transient File gameDir;
 	protected transient LaunchClassLoader classLoader;
 	private transient Thread saveThread;
 	private transient boolean dirty;
@@ -123,6 +125,7 @@ public class ClassCache implements Serializable {
 		cache.classCacheFile = classCacheFile;
 		cache.classCacheFileTmp = new File(classCacheFile.getAbsolutePath() + "_tmp");
 		cache.classLoader = classLoader;
+		cache.gameDir = gameDir;
 
 		if (cache.classCacheFileTmp.exists()) {
 			cache.classCacheFileTmp.delete();
@@ -145,6 +148,12 @@ public class ClassCache implements Serializable {
 				int version = dataInputStream.readInt();
 				if (version != CURRENT_VERSION) {
 					throw new IOException("Invalid ClassCache.dat version!");
+				}
+
+				byte[] stateData = new byte[dataInputStream.readUnsignedShort()];
+				dataInputStream.read(stateData);
+				if (!Arrays.equals(stateData, ClassCacheState.generate(gameDir))) {
+					throw new IOException("THIS IS NOT AN ERROR - Cache state changed, regenerating...");
 				}
 
 				int packageCount = dataInputStream.readInt();
@@ -194,6 +203,7 @@ public class ClassCache implements Serializable {
 				cache.classCacheFile = classCacheFile;
 				cache.classCacheFileTmp = new File(classCacheFile.getAbsolutePath() + "_tmp");
 				cache.classLoader = classLoader;
+				cache.gameDir = gameDir;
 			}
 		}
 
@@ -253,6 +263,10 @@ public class ClassCache implements Serializable {
 			ObjectOutputStream objectOutputStream = new ObjectOutputStream(dataOutputStream);
 
 			dataOutputStream.writeInt(CURRENT_VERSION); // version
+
+			byte[] stateData = ClassCacheState.generate(gameDir);
+			dataOutputStream.writeShort(stateData.length);
+			dataOutputStream.write(stateData);
 
 			Map<String, Package> packageMap = (Map<String, Package>) PACKAGES.get(classLoader);
 

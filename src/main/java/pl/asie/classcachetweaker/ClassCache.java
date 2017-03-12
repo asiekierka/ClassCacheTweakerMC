@@ -212,22 +212,23 @@ public class ClassCache implements Serializable {
 			@Override
 			public void run() {
 				while (true) {
+					synchronized (cache1) {
+						if (cache1.dirty) {
+							cache1.save();
+							cache1.dirty = false;
+						} else {
+							break;
+						}
+					}
+
 					try {
 						Thread.sleep(5000);
 					} catch (InterruptedException e) {
 
 					}
-
-					synchronized (cache1) {
-						if (cache1.dirty) {
-							cache1.save();
-							cache1.dirty = false;
-						}
-					}
 				}
 			}
 		});
-		cache.saveThread.start();
 
 		return cache;
 	}
@@ -235,10 +236,13 @@ public class ClassCache implements Serializable {
 	public synchronized void add(String transformedName, byte[] data) {
 		if (data == null) return;
 
-		System.out.println("Adding " + transformedName);
+		// System.out.println("Adding " + transformedName);
 		classMap.put(transformedName, data);
 
 		dirty = true;
+		if (!saveThread.isAlive()) {
+			saveThread.start();
+		}
 	}
 
 	private static void writeNullableUTF(DataOutputStream stream, String s) throws IOException {

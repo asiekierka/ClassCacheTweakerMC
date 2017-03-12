@@ -25,7 +25,7 @@ public class ClassCacheState {
 			this.time = file.lastModified();
 			this.size = file.length();
 
-			System.out.println("- " + path);
+			// System.out.println("- " + path);
 		}
 
 		public void append(MessageDigest md) {
@@ -75,7 +75,9 @@ public class ClassCacheState {
 				}
 			}
 		} else {
-			stateList.add(new FileState(file));
+			if (!file.getName().toLowerCase().endsWith("carpentersblockscachedresources.zip")) {
+				stateList.add(new FileState(file));
+			}
 		}
 	}
 }

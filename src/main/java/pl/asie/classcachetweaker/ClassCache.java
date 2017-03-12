@@ -32,7 +32,7 @@ public class ClassCache implements Serializable {
 	private transient static final Field CACHED_CLASSES;
 	private transient static final Field MANIFESTS;
 	private transient static final Field SEAL_BASE;
-	private transient static final MethodHandle DEFINE_CLASS;
+	public transient static final MethodHandle DEFINE_CLASS;
 	private transient static final MethodHandle DEFINE_PACKAGE;
 
 	static {
@@ -83,7 +83,7 @@ public class ClassCache implements Serializable {
 		MethodHandle DEFINE_PACKAGE_TMP = null;
 
 		try {
-			Method m = URLClassLoader.class.getDeclaredMethod("definePackage", String.class, Manifest.class, URL.class);
+			Method m = ClassLoader.class.getDeclaredMethod("definePackage", String.class, String.class, String.class, String.class, String.class, String.class, String.class, URL.class);
 			m.setAccessible(true);
 			DEFINE_PACKAGE_TMP = MethodHandles.lookup().unreflect(m);
 		} catch (Exception e) {
@@ -107,52 +107,78 @@ public class ClassCache implements Serializable {
 
 	private transient File classCacheFile;
 	private transient File classCacheFileTmp;
-	private transient LaunchClassLoader classLoader;
+	protected transient LaunchClassLoader classLoader;
 	private transient Thread saveThread;
 	private transient boolean dirty;
 
-	private Set<String> packageNames = new HashSet<>();
 	private Map<String, byte[]> classMap = new HashMap<>();
+	protected Map<String, CodeSource> codeSourceMap = new HashMap<>();
 
 	public static ClassCache load(LaunchClassLoader classLoader, File gameDir) throws IOException, IllegalAccessException, ClassNotFoundException {
 		File classCacheFile = new File(gameDir, "classCache.dat");
 		ClassCache cache = new ClassCache();
+
+		cache.classCacheFile = classCacheFile;
+		cache.classCacheFileTmp = new File(classCacheFile.getAbsolutePath() + "_tmp");
+		cache.classLoader = classLoader;
+
+		if (cache.classCacheFileTmp.exists()) {
+			cache.classCacheFileTmp.delete();
+		}
+
+		Map<String, Class<?>> cachedClassesOld = (Map<String, Class<?>>) CACHED_CLASSES.get(classLoader);
+		if (!(cachedClassesOld instanceof ClassCacheConcurrentHashMap)) {
+			Map<String, Class<?>> cachedClasses = new ClassCacheConcurrentHashMap(cache, classLoader);
+			cachedClasses.putAll(cachedClassesOld);
+			CACHED_CLASSES.set(classLoader, cachedClasses);
+		}
+
 		if (classCacheFile.exists()) {
 			boolean loaded = false;
 
 			try {
 				FileInputStream fileInputStream = new FileInputStream(classCacheFile);
 				DataInputStream dataInputStream = new DataInputStream(fileInputStream);
+				ObjectInputStream objectInputStream = new ObjectInputStream(dataInputStream);
 				int version = dataInputStream.readUnsignedByte();
 				if (version != 1) {
 					throw new IOException("Invalid ClassCache.dat version!");
 				}
 
-				Map<Package, Manifest> packageManifestMap = (Map<Package, Manifest>) MANIFESTS.get(classLoader);
-
 				int packageCount = dataInputStream.readInt();
 				for (int i = 0; i < packageCount; i++) {
-					boolean present = dataInputStream.readBoolean();
-					if (present) {
-						String name = dataInputStream.readUTF();
-						Manifest manifest = new Manifest();
-						manifest.read(dataInputStream);
-						URL url = dataInputStream.readBoolean() ? new URL(dataInputStream.readUTF()) : null;
-						Package out = (Package) DEFINE_PACKAGE.invokeExact((URLClassLoader) classLoader, name, manifest, url);
-						cache.packageNames.add(name);
-						packageManifestMap.put(out, manifest);
+					String name = readNullableUTF(dataInputStream);
+					String implTitle = readNullableUTF(dataInputStream);
+					String implVendor = readNullableUTF(dataInputStream);
+					String implVersion = readNullableUTF(dataInputStream);
+					String specTitle = readNullableUTF(dataInputStream);
+					String specVendor = readNullableUTF(dataInputStream);
+					String specVersion = readNullableUTF(dataInputStream);
+					URL url = dataInputStream.readBoolean() ? new URL(dataInputStream.readUTF()) : null;
+					try {
+						Package out = (Package) DEFINE_PACKAGE.invokeExact((ClassLoader) classLoader, name, specTitle, specVersion, specVendor, implTitle, implVersion, implVendor, url);
+					} catch (IllegalArgumentException e) {
+						// this means we already have that Package
+					} catch (Exception e) {
+						e.printStackTrace();
 					}
 				}
 
 				int classCount = dataInputStream.readInt();
 				for (int i = 0; i < classCount; i++) {
 					String name = dataInputStream.readUTF();
+					boolean hasCodeSource = dataInputStream.readBoolean();
+					if (hasCodeSource) {
+						CodeSource codeSource = (CodeSource) objectInputStream.readObject();
+						cache.codeSourceMap.put(name, codeSource);
+					}
 					int dataLen = dataInputStream.readInt();
 					byte[] data = new byte[dataLen];
 					dataInputStream.read(data);
 					cache.classMap.put(name, data);
 				}
 
+				objectInputStream.close();
 				dataInputStream.close();
 				fileInputStream.close();
 
@@ -161,32 +187,6 @@ public class ClassCache implements Serializable {
 				t.printStackTrace();
 				cache = new ClassCache();
 			}
-
-			if (loaded) {
-				//HashMap<String, Package> packageHashMap = (HashMap<String, Package>) PACKAGES.get(classLoader);
-				//packageHashMap.putAll(cache.packageMap);
-
-				Map<String, Class<?>> cachedClasses = (Map<String, Class<?>>) CACHED_CLASSES.get(classLoader);
-
-				cache.classMap.entrySet().forEach((entry) -> {
-					try {
-						if (!cachedClasses.containsKey(entry.getKey())) {
-							Class<?> c = (Class<?>) DEFINE_CLASS.invokeExact((SecureClassLoader) classLoader, entry.getKey(), entry.getValue(), 0, entry.getValue() == null ? 0 : entry.getValue().length, (CodeSource) null);
-							cachedClasses.put(entry.getKey(), c);
-						}
-					} catch (Throwable t) {
-						throw new RuntimeException(t);
-					}
-				});
-			}
-		}
-
-		cache.classCacheFile = classCacheFile;
-		cache.classCacheFileTmp = new File(classCacheFile.getAbsolutePath() + "_tmp");
-		cache.classLoader = classLoader;
-
-		if (cache.classCacheFileTmp.exists()) {
-			cache.classCacheFileTmp.delete();
 		}
 
 		final ClassCache cache1 = cache;
@@ -220,50 +220,76 @@ public class ClassCache implements Serializable {
 		System.out.println("Adding " + transformedName);
 		classMap.put(transformedName, data);
 
-		int lastDot = transformedName.lastIndexOf('.');
-		if (lastDot > -1 && !transformedName.startsWith("net.minecraft.")) {
-			String packageName = transformedName.substring(0, lastDot);
-			packageNames.add(packageName);
-		}
-
 		dirty = true;
+	}
+
+	private static void writeNullableUTF(DataOutputStream stream, String s) throws IOException {
+		stream.writeBoolean(s != null);
+		if (s != null) {
+			stream.writeUTF(s);
+		}
+	}
+
+	private static String readNullableUTF(DataInputStream stream) throws IOException {
+		if (stream.readBoolean()) {
+			return stream.readUTF();
+		} else {
+			return null;
+		}
 	}
 
 	private synchronized void save() {
 		try {
 			FileOutputStream fileOutputStream = new FileOutputStream(classCacheFileTmp);
 			DataOutputStream dataOutputStream = new DataOutputStream(fileOutputStream);
-			Map<Package, Manifest> packageManifestMap = (Map<Package, Manifest>) MANIFESTS.get(classLoader);
+			ObjectOutputStream objectOutputStream = new ObjectOutputStream(dataOutputStream);
 
 			dataOutputStream.writeByte(1); // version
-			dataOutputStream.writeInt(packageNames.size());
-			for (String s : packageNames) {
-				Package pkg = Package.getPackage(s);
-				if (pkg == null) {
-					// System.out.println("!? " + s);
-					dataOutputStream.writeBoolean(false);
-					continue;
-				}
-				Manifest manifest = packageManifestMap.get(pkg);
-				dataOutputStream.writeBoolean(manifest != null);
-				if (manifest != null) {
-					dataOutputStream.writeUTF(s);
-					manifest.write(dataOutputStream);
-					URL sealBase = (URL) SEAL_BASE.get(pkg);
-					dataOutputStream.writeBoolean(sealBase != null);
-					if (sealBase != null) {
-						dataOutputStream.writeUTF(sealBase.toString());
-					}
+
+			Map<String, Package> packageMap = (Map<String, Package>) PACKAGES.get(classLoader);
+
+			dataOutputStream.writeInt(packageMap.values().size());
+			for (Package pkg : packageMap.values()) {
+				writeNullableUTF(dataOutputStream, pkg.getName());
+				writeNullableUTF(dataOutputStream, pkg.getImplementationTitle());
+				writeNullableUTF(dataOutputStream, pkg.getImplementationVendor());
+				writeNullableUTF(dataOutputStream, pkg.getImplementationVersion());
+				writeNullableUTF(dataOutputStream, pkg.getSpecificationTitle());
+				writeNullableUTF(dataOutputStream, pkg.getSpecificationVendor());
+				writeNullableUTF(dataOutputStream, pkg.getSpecificationVersion());
+				URL sealBase = (URL) SEAL_BASE.get(pkg);
+				dataOutputStream.writeBoolean(sealBase != null);
+				if (sealBase != null) {
+					dataOutputStream.writeUTF(sealBase.toString());
 				}
 			}
 
+			ClassCacheConcurrentHashMap cachedClasses = (ClassCacheConcurrentHashMap) CACHED_CLASSES.get(classLoader);
+
 			dataOutputStream.writeInt(classMap.size());
 			for (Map.Entry<String, byte[]> entry : classMap.entrySet()) {
+				CodeSource src = codeSourceMap.get(entry.getKey());
+				if (!codeSourceMap.containsKey(entry.getKey())) {
+					Class<?> cl = cachedClasses.getReal(entry.getKey());
+					if (cl != null) {
+						src = cl.getProtectionDomain().getCodeSource();
+						codeSourceMap.put(entry.getKey(), src);
+					} else {
+						src = null;
+					}
+				}
+
 				dataOutputStream.writeUTF(entry.getKey());
+				dataOutputStream.writeBoolean(src != null);
+				if (src != null) {
+					objectOutputStream.writeObject(src);
+					objectOutputStream.flush();
+				}
 				dataOutputStream.writeInt(entry.getValue().length);
 				dataOutputStream.write(entry.getValue());
 			}
 
+			objectOutputStream.close();
 			dataOutputStream.flush();
 			dataOutputStream.close();
 			fileOutputStream.flush();
@@ -274,5 +300,9 @@ public class ClassCache implements Serializable {
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
+	}
+
+	public byte[] get(Object transformedName) {
+		return classMap.get(transformedName);
 	}
 }

@@ -46,10 +46,19 @@ public class ClassCacheTweaker implements ITweaker {
 			transformersField.setAccessible(true);
 
 			List<IClassTransformer> transformerList = (List<IClassTransformer>) transformersField.get(classLoader);
-			ClassCacheTransformer transformer = new ClassCacheTransformer(Lists.newArrayList(transformerList), gameDir);
+
+			List<IClassTransformer> capturedTransformerList = Lists.newArrayList();
+			List<IClassTransformer> preservedTransformerList = Lists.newArrayList();
+
+			for (IClassTransformer transformer : transformerList) {
+				capturedTransformerList.add(transformer);
+			}
+
+			ClassCacheTransformer transformer = new ClassCacheTransformer(capturedTransformerList, gameDir);
 
 			transformerList.clear();
 			transformerList.add(transformer);
+			transformerList.addAll(preservedTransformerList);
 		} catch (Exception e) {
 			throw new RuntimeException(e);
 		}

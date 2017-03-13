@@ -1,3 +1,28 @@
+/**
+ * This file is part of ClassCacheTweaker.
+ *
+ * ClassCacheTweaker is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * ClassCacheTweaker is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with ClassCacheTweaker.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Additional permission under GNU GPL version 3 section 7
+ *
+ * If you modify this Program, or any covered work, by linking or
+ * combining it with the Minecraft game engine, the Mojang Launchwrapper,
+ * the Mojang AuthLib and the Minecraft Realms library (and/or modified
+ * versions of said software), containing parts covered by the terms of
+ * their respective licenses, the licensors of this Program grant you
+ * additional permission to convey the resulting work.
+ */
 package pl.asie.classcachetweaker;
 
 import net.minecraft.launchwrapper.LaunchClassLoader;
@@ -213,13 +238,11 @@ public class ClassCache implements Serializable {
 			@Override
 			public void run() {
 				while (true) {
-					synchronized (cache1) {
-						if (cache1.dirty) {
-							cache1.save();
-							cache1.dirty = false;
-						} else {
-							break;
-						}
+					if (cache1.dirty) {
+						cache1.save();
+						cache1.dirty = false;
+					} else {
+						break;
 					}
 
 					try {
@@ -234,11 +257,13 @@ public class ClassCache implements Serializable {
 		return cache;
 	}
 
-	public synchronized void add(String transformedName, byte[] data) {
+	public void add(String transformedName, byte[] data) {
 		if (data == null) return;
 
 		// System.out.println("Adding " + transformedName);
-		classMap.put(transformedName, data);
+		synchronized (classMap) {
+			classMap.put(transformedName, data);
+		}
 
 		dirty = true;
 		if (saveThread == null || !saveThread.isAlive()) {
@@ -262,7 +287,7 @@ public class ClassCache implements Serializable {
 		}
 	}
 
-	private synchronized void save() {
+	private void save() {
 		try {
 			FileOutputStream fileOutputStream = new FileOutputStream(classCacheFileTmp);
 			DataOutputStream dataOutputStream = new DataOutputStream(fileOutputStream);
@@ -294,32 +319,34 @@ public class ClassCache implements Serializable {
 
 			ClassCacheConcurrentHashMap cachedClasses = (ClassCacheConcurrentHashMap) CACHED_CLASSES.get(classLoader);
 
-			dataOutputStream.writeInt(classMap.size());
-			for (Map.Entry<String, byte[]> entry : classMap.entrySet()) {
-				Class<?> cl = cachedClasses.getReal(entry.getKey());
-				if (cl == null) {
-					dataOutputStream.writeBoolean(false);
-					continue;
-				}
-
-				CodeSource src = cl.getProtectionDomain().getCodeSource();
-
-				boolean shouldWrite = true;
-				if (src != null) {
-					String loc = src.getLocation().toString();
-					shouldWrite = !loc.startsWith("file:") || !loc.endsWith(".class");
-				}
-
-				dataOutputStream.writeBoolean(shouldWrite);
-				if (shouldWrite) {
-					dataOutputStream.writeUTF(entry.getKey());
-					dataOutputStream.writeBoolean(src != null);
-					if (src != null) {
-						objectOutputStream.writeObject(src);
-						objectOutputStream.flush();
+			synchronized (classMap) {
+				dataOutputStream.writeInt(classMap.size());
+				for (Map.Entry<String, byte[]> entry : classMap.entrySet()) {
+					Class<?> cl = cachedClasses.getReal(entry.getKey());
+					if (cl == null) {
+						dataOutputStream.writeBoolean(false);
+						continue;
 					}
-					dataOutputStream.writeInt(entry.getValue().length);
-					dataOutputStream.write(entry.getValue());
+
+					CodeSource src = cl.getProtectionDomain().getCodeSource();
+
+					boolean shouldWrite = true;
+					if (src != null) {
+						String loc = src.getLocation().toString();
+						shouldWrite = !loc.startsWith("file:") || !loc.endsWith(".class");
+					}
+
+					dataOutputStream.writeBoolean(shouldWrite);
+					if (shouldWrite) {
+						dataOutputStream.writeUTF(entry.getKey());
+						dataOutputStream.writeBoolean(src != null);
+						if (src != null) {
+							objectOutputStream.writeObject(src);
+							objectOutputStream.flush();
+						}
+						dataOutputStream.writeInt(entry.getValue().length);
+						dataOutputStream.write(entry.getValue());
+					}
 				}
 			}
 

@@ -113,6 +113,7 @@ public class ClassCache implements Serializable {
 	private transient File gameDir;
 	protected transient LaunchClassLoader classLoader;
 	private transient Thread saveThread;
+	private transient Runnable saveRunnable;
 	private transient boolean dirty;
 
 	private Map<String, byte[]> classMap = new HashMap<>();
@@ -208,7 +209,7 @@ public class ClassCache implements Serializable {
 		}
 
 		final ClassCache cache1 = cache;
-		cache.saveThread = new Thread(new Runnable() {
+		cache.saveRunnable = new Runnable() {
 			@Override
 			public void run() {
 				while (true) {
@@ -228,7 +229,7 @@ public class ClassCache implements Serializable {
 					}
 				}
 			}
-		});
+		};
 
 		return cache;
 	}
@@ -240,7 +241,8 @@ public class ClassCache implements Serializable {
 		classMap.put(transformedName, data);
 
 		dirty = true;
-		if (!saveThread.isAlive()) {
+		if (saveThread == null || !saveThread.isAlive()) {
+			saveThread = new Thread(saveRunnable);
 			saveThread.start();
 		}
 	}

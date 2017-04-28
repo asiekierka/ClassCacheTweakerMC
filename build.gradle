@@ -12,7 +12,7 @@ buildscript {
 apply plugin: 'net.minecraftforge.gradle.forge'
 apply plugin: 'com.github.johnrengelman.shadow'
 
-version = "0.1.0"
+version = "0.1.4"
 group = "pl.asie.classcachetweaker" // http://maven.apache.org/guides/mini/guide-naming-conventions.html
 archivesBaseName = "classcachetweaker"
 

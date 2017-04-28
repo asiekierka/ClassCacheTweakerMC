@@ -25,23 +25,31 @@
  */
 package pl.asie.classcachetweaker;
 
+import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import com.google.common.io.CharSink;
+import com.google.common.io.Files;
 import net.minecraft.launchwrapper.IClassTransformer;
 import net.minecraft.launchwrapper.ITweaker;
 import net.minecraft.launchwrapper.LaunchClassLoader;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.lang.reflect.Field;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
-/**
- * Created by asie on 3/9/17.
- */
 public class ClassCacheTweaker implements ITweaker {
-	private static final Set<String> INCOMPATIBLE_TRANSFORMER_PREFIXES = ImmutableSet.of("elec332.");
-	private static final Set<String> INCOMPATIBLE_TRANSFORMER_SUFFIXES = ImmutableSet.of("fml.common.asm.transformers.ModAPITransformer");
+	private static final Set<String> INCOMPATIBLE_TRANSFORMER_PREFIXES = Sets.newHashSet(
+			"elec332.", "me.nallar.modpatcher."
+	);
+	private static final Set<String> INCOMPATIBLE_TRANSFORMER_SUFFIXES = Sets.newHashSet("fml.common.asm.transformers.ModAPITransformer");
 
 	public static ClassCache cache;
 	private LaunchClassLoader classLoader;
@@ -64,6 +72,42 @@ public class ClassCacheTweaker implements ITweaker {
 
 	@Override
 	public String[] getLaunchArguments() {
+		// have to do this by hand because i do not wish to rely on the stability of FML's configuration API
+		File file = new File(new File(gameDir, "config"), "classCacheTweaker.cfg");
+		file.getParentFile().mkdirs();
+
+		Map<String, String> config = new HashMap<>();
+		config.put("incompatibleTransformerPrefixes", "");
+		config.put("incompatibleTransformerSuffixes", "");
+
+		try {
+			for (String s : Files.readLines(file, Charsets.UTF_8)) {
+				String[] data = s.split("=", 2);
+				if (data.length == 2) {
+					config.put(data[0].trim(), data[1].trim());
+				}
+			}
+		} catch (FileNotFoundException e) {
+
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+
+		try {
+			StringBuilder builder = new StringBuilder();
+			for (Map.Entry<String, String> entry : config.entrySet()) {
+				builder.append(entry.getKey() + "=" + entry.getValue() + "\n");
+			}
+			Files.write(builder.toString(), file, Charsets.UTF_8);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+
+		for (String s : config.get("incompatibleTransformerPrefixes").split(";"))
+			INCOMPATIBLE_TRANSFORMER_PREFIXES.add(s);
+		for (String s : config.get("incompatibleTransformerSuffixes").split(";"))
+			INCOMPATIBLE_TRANSFORMER_SUFFIXES.add(s);
+
 		try {
 			cache = ClassCache.load(classLoader, gameDir);
 		} catch (Exception e) {

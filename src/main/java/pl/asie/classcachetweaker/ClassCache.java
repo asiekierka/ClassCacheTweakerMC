@@ -25,9 +25,12 @@
  */
 package pl.asie.classcachetweaker;
 
+import com.google.common.collect.Sets;
+import net.minecraft.launchwrapper.Launch;
 import net.minecraft.launchwrapper.LaunchClassLoader;
 import org.lwjgl.Sys;
 
+import javax.swing.*;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -164,8 +167,8 @@ public class ClassCache implements Serializable {
 			CACHED_CLASSES.set(classLoader, cachedClasses);
 		}
 
+		boolean loaded = false;
 		if (classCacheFile.exists()) {
-			boolean loaded = false;
 
 			try {
 				FileInputStream fileInputStream = new FileInputStream(classCacheFile);
@@ -233,6 +236,12 @@ public class ClassCache implements Serializable {
 			}
 		}
 
+		if (!loaded && !((boolean) Launch.blackboard.get("fml.deobfuscatedEnvironment"))) {
+			JOptionPane.showMessageDialog(new JFrame(), "Please note that ClassCacheTweaker is UNSUPPORTED and has a high chance to\n" +
+					"** BREAK YOUR MODPACK IN STRANGE WAYS **!\n" +
+					"Please only use it if you KNOW WHAT YOU ARE DOING!", "ClassCacheTweaker Warning", JOptionPane.WARNING_MESSAGE);
+		}
+
 		final ClassCache cache1 = cache;
 		cache.saveRunnable = new Runnable() {
 			@Override
@@ -246,7 +255,7 @@ public class ClassCache implements Serializable {
 					}
 
 					try {
-						Thread.sleep(5000);
+						Thread.sleep(10000);
 					} catch (InterruptedException e) {
 
 					}
@@ -300,9 +309,10 @@ public class ClassCache implements Serializable {
 			dataOutputStream.write(stateData);
 
 			Map<String, Package> packageMap = (Map<String, Package>) PACKAGES.get(classLoader);
+			Set<Package> packages = Sets.newHashSet(packageMap.values());
 
-			dataOutputStream.writeInt(packageMap.values().size());
-			for (Package pkg : packageMap.values()) {
+			dataOutputStream.writeInt(packages.size());
+			for (Package pkg : packages) {
 				writeNullableUTF(dataOutputStream, pkg.getName());
 				writeNullableUTF(dataOutputStream, pkg.getImplementationTitle());
 				writeNullableUTF(dataOutputStream, pkg.getImplementationVendor());
